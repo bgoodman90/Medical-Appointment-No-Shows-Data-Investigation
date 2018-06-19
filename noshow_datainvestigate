@@ -1,0 +1,125 @@
+#This file uses machine learning models to analyze the Medical Appointment No Shows dataset
+#this dataset can be found on Kaggle: https://www.kaggle.com/joniarroba/noshowappointments/data
+#the dataset is to be used to determine whether a patient will show up or not to a medical appointment
+#It is coded in Python 3.6.2
+
+import pandas as pd
+import numpy as np
+import math
+from pandas import DataFrame
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.decomposition import PCA
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import cross_val_score
+from sklearn.metrics import accuracy_score
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import VotingClassifier
+from sklearn.ensemble import BaggingClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.naive_bayes import BernoulliNB
+import xgboost
+
+df = pd.read_csv('noshow_data.csv',sep=',')
+df_out = df['No-show']
+df_in = df.drop(['No-show','PatientId','AppointmentID'], axis=1)
+
+print('there are ',df.shape[0],' people in the data set')
+
+#fix typos
+df_in.rename(columns = {'Hipertension':'Hypertension', 'Handcap': 'Handicap'}, inplace = True)
+print(df_in.columns)
+
+df_in.ScheduledDay = df_in.ScheduledDay.apply(np.datetime64)
+df_in.AppointmentDay = df_in.AppointmentDay.apply(np.datetime64)
+
+#add days to appointment attribute
+daysToAppointment = df_in.AppointmentDay - df_in.ScheduledDay
+daysToAppointment = daysToAppointment.apply(lambda x: x.total_seconds() / (3600 * 24))
+daysToAppointment = round(daysToAppointment+.5)
+daysToAppointment = daysToAppointment.astype(np.int64)
+df_in = df_in.assign(DaysToAppointment=daysToAppointment)
+
+#add in hour appointment was booked during the day, sadly looking at the data we don't know the time the appointment
+#was booked for
+def calculateHour(timestamp):
+    timestamp = str(timestamp)
+    hour = int(timestamp[11:13])
+    minute = int(timestamp[14:16])
+    second = int(timestamp[17:])
+    return round(hour + minute/60 + second/3600)
+
+df_in['HourOfTheDay'] = df_in.ScheduledDay.apply(calculateHour)
+
+#add in month of appointment (possible weather affects)
+def calculateMonth(timestamp):
+    timestamp = str(timestamp)
+    month = int(timestamp[5:7])
+    return round(month)
+
+df_in['MonthofAppointment'] = df_in.AppointmentDay.apply(calculateMonth)
+print(df_in.head())
+
+#check for missing values, and check unique values for each feature in dataset
+print('Age:',sorted(df_in.Age.unique()))
+print('Gender:',df_in.Gender.unique())
+print('Diabetes:',df_in.Diabetes.unique())
+print('Alcoholism:',df_in.Alcoholism.unique())
+print('Hypertension:',df_in.Hypertension.unique())
+print('Handicap:',df_in.Handicap.unique())
+print('Scholarship:',df_in.Scholarship.unique())
+print('SMS_received:',df_in.SMS_received.unique())
+print('HourOfTheDay:', sorted(df_in.HourOfTheDay.unique()))
+print('DaysToAppointment:', sorted(df_in.DaysToAppointment.unique()))
+print('MonthofAppointment:', sorted(df_in.MonthofAppointment.unique()))
+
+#Ages -1 and above 100 are going to be considered outliers
+#DaystoAppointment -1 and -6 are also outliers
+df_in = df_in[(df_in.Age >= 0) & (df_in.Age <= 100) & (df_in.DaysToAppointment >= 0)]
+
+print('there are ',df_in.shape[0],' people in the data set')
+
+#The appointments are only for the months of April, May and June, so we are going to remove that feature
+#We will remove the features with dates and times
+df_in = df_in.drop(['ScheduledDay','AppointmentDay'], axis=1)
+df_in2 = df_in.drop(['Neighbourhood'], axis=1)#we may need to drop the Neighbourhood feature too
+
+#Now we need to encode the following features: Gender, and Neighbourhood (the latter will need hot encoding)
+
+from sklearn.preprocessing import LabelEncoder#this is used for encoding categorical values to 0,1,2... (in order)
+gender_le = LabelEncoder()#encoding M and F into numbers in Gender
+neigh_le = LabelEncoder()#encoding hospital into numbers
+noshow_le = LabelEncoder()#encoding Yes or No: noshow values into numbers
+
+X = df_in.values
+X2 = df_in2.values#in case dropping the Neighbourhood feature helps
+
+Y_out = df_out.values
+
+X[:, 0] = gender_le.fit_transform(X[:, 0])#encoding gender feature so male->1, female->0
+X2[:, 0] = X[:, 0]#encoding gender feature so male->1, female->0
+print(X[0:5, :])
+
+X[:, 2] = neigh_le.fit_transform(X[:, 2])#
+#data_label_encoded2 = embarked_le.fit_transform(df['Embarked'])
+#df['Embarked'] = data_label_encoded2
+#print(df.head())
+print('After we have label encoded the Sex and Embarked features, the first 5 rows of our dataset are:')
+print(X[0:5, :])
+print('Neighbourhood:', sorted(df_in.Neighbourhood.unique()))
+print(len(sorted(df_in.Neighbourhood.unique())))
+
+from sklearn.preprocessing import OneHotEncoder#this is used for unordered categorical values
+ohe = OneHotEncoder(categorical_features=[2])#we need to encode Neighbourhood because there it has no inherent order
+X = ohe.fit_transform(X).toarray()#note, when you do this the one hot encoding goes to the first columns of the array
+X = np.delete(X, 0, axis=1)#we delete the first column of X because the information can be inferred by the second
+    # two columns
+
+Y_out = noshow_le.fit_transform(Y_out)#encoding gender feature so Malignant (Yes)->1, Benign (No)->0
