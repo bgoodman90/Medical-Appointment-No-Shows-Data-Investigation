@@ -28,24 +28,23 @@ from sklearn.naive_bayes import BernoulliNB
 import xgboost
 
 df = pd.read_csv('noshow_data.csv',sep=',')
-df_out = df['No-show']
-df_in = df.drop(['No-show','PatientId','AppointmentID'], axis=1)
+df = df.drop(['PatientId','AppointmentID'], axis=1)
 
 print('there are ',df.shape[0],' people in the data set')
 
 #fix typos
-df_in.rename(columns = {'Hipertension':'Hypertension', 'Handcap': 'Handicap'}, inplace = True)
-print(df_in.columns)
+df.rename(columns = {'Hipertension':'Hypertension', 'Handcap': 'Handicap'}, inplace = True)
+print(df.columns)
 
-df_in.ScheduledDay = df_in.ScheduledDay.apply(np.datetime64)
-df_in.AppointmentDay = df_in.AppointmentDay.apply(np.datetime64)
+df.ScheduledDay = df.ScheduledDay.apply(np.datetime64)
+df.AppointmentDay = df.AppointmentDay.apply(np.datetime64)
 
 #add days to appointment attribute
-daysToAppointment = df_in.AppointmentDay - df_in.ScheduledDay
+daysToAppointment = df.AppointmentDay - df.ScheduledDay
 daysToAppointment = daysToAppointment.apply(lambda x: x.total_seconds() / (3600 * 24))
 daysToAppointment = round(daysToAppointment+.5)
 daysToAppointment = daysToAppointment.astype(np.int64)
-df_in = df_in.assign(DaysToAppointment=daysToAppointment)
+df = df.assign(DaysToAppointment=daysToAppointment)
 
 #add in hour appointment was booked during the day, sadly looking at the data we don't know the time the appointment
 #was booked for
@@ -56,7 +55,7 @@ def calculateHour(timestamp):
     second = int(timestamp[17:])
     return round(hour + minute/60 + second/3600)
 
-df_in['HourOfTheDay'] = df_in.ScheduledDay.apply(calculateHour)
+df['HourOfTheDay'] = df.ScheduledDay.apply(calculateHour)
 
 #add in month of appointment (possible weather affects)
 def calculateMonth(timestamp):
@@ -64,31 +63,33 @@ def calculateMonth(timestamp):
     month = int(timestamp[5:7])
     return round(month)
 
-df_in['MonthofAppointment'] = df_in.AppointmentDay.apply(calculateMonth)
-print(df_in.head())
+df['MonthofAppointment'] = df.AppointmentDay.apply(calculateMonth)
+print(df.head())
 
 #check for missing values, and check unique values for each feature in dataset
-print('Age:',sorted(df_in.Age.unique()))
-print('Gender:',df_in.Gender.unique())
-print('Diabetes:',df_in.Diabetes.unique())
-print('Alcoholism:',df_in.Alcoholism.unique())
-print('Hypertension:',df_in.Hypertension.unique())
-print('Handicap:',df_in.Handicap.unique())
-print('Scholarship:',df_in.Scholarship.unique())
-print('SMS_received:',df_in.SMS_received.unique())
-print('HourOfTheDay:', sorted(df_in.HourOfTheDay.unique()))
-print('DaysToAppointment:', sorted(df_in.DaysToAppointment.unique()))
-print('MonthofAppointment:', sorted(df_in.MonthofAppointment.unique()))
+print('Age:',sorted(df.Age.unique()))
+print('Gender:',df.Gender.unique())
+print('Diabetes:',df.Diabetes.unique())
+print('Alcoholism:',df.Alcoholism.unique())
+print('Hypertension:',df.Hypertension.unique())
+print('Handicap:',df.Handicap.unique())
+print('Scholarship:',df.Scholarship.unique())
+print('SMS_received:',df.SMS_received.unique())
+print('HourOfTheDay:', sorted(df.HourOfTheDay.unique()))
+print('DaysToAppointment:', sorted(df.DaysToAppointment.unique()))
+print('MonthofAppointment:', sorted(df.MonthofAppointment.unique()))
 
 #Ages -1 and above 100 are going to be considered outliers
 #DaystoAppointment -1 and -6 are also outliers
-df_in = df_in[(df_in.Age >= 0) & (df_in.Age <= 100) & (df_in.DaysToAppointment >= 0)]
+df = df[(df.Age >= 0) & (df.Age <= 100) & (df.DaysToAppointment >= 0)]
+df_out = df['No-show']
+df_in = df.drop(['No-show'], axis=1)
 
 print('there are ',df_in.shape[0],' people in the data set')
 
 #The appointments are only for the months of April, May and June, so we are going to remove that feature
 #We will remove the features with dates and times
-df_in = df_in.drop(['ScheduledDay','AppointmentDay'], axis=1)
+df_in = df_in.drop(['ScheduledDay','AppointmentDay','MonthofAppointment'], axis=1)
 df_in2 = df_in.drop(['Neighbourhood'], axis=1)#we may need to drop the Neighbourhood feature too
 
 #Now we need to encode the following features: Gender, and Neighbourhood (the latter will need hot encoding)
@@ -111,7 +112,7 @@ X[:, 2] = neigh_le.fit_transform(X[:, 2])#
 #data_label_encoded2 = embarked_le.fit_transform(df['Embarked'])
 #df['Embarked'] = data_label_encoded2
 #print(df.head())
-print('After we have label encoded the Sex and Embarked features, the first 5 rows of our dataset are:')
+print('The first 5 rows of our dataset without one hot encoding are:')
 print(X[0:5, :])
 print('Neighbourhood:', sorted(df_in.Neighbourhood.unique()))
 print(len(sorted(df_in.Neighbourhood.unique())))
@@ -123,3 +124,64 @@ X = np.delete(X, 0, axis=1)#we delete the first column of X because the informat
     # two columns
 
 Y_out = noshow_le.fit_transform(Y_out)#encoding gender feature so Malignant (Yes)->1, Benign (No)->0
+print(Y_out[0:10])
+
+
+#Scaling
+stdsc = StandardScaler()
+X_std = stdsc.fit_transform(X)#standardize the values of our input set
+X2_std = stdsc.fit_transform(X2)#standardize the values of our input set
+
+print(X_std.shape,Y_out.shape)
+print(X.shape)
+
+#now we are going to split our training data into training and testing data, the reason for this is so that we can
+#test for overfitting and such
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test =\
+    train_test_split(X_std, Y_out,\
+    test_size = 0.2,\
+    random_state = 1,\
+    stratify = Y_out)#this makes sure the training and test datasets have same class proportions
+X_train2, X_test2, y_train2, y_test2 = train_test_split(X2_std, Y_out,\
+        test_size = 0.2,\
+        random_state = 1,\
+        stratify = Y_out)#this makes sure the training and test datasets have same class proportions
+
+#######################################################################################################
+#######################################################################################################
+#######################################################################################################
+
+#Logistic Regression Estimator
+
+pipe_lr = make_pipeline(PCA(), LogisticRegression(random_state=0))
+print(pipe_lr.get_params().keys())
+param_range = [.1, .5, 1, 10, 50]#regularization parameter for logistic regression
+
+def lrpca(X_train, y_train):
+    n_components=np.arange(3,X_train.shape[1]+1,1)#the number of components PCA reduces the data to
+    param_grid = [{'pca__n_components': n_components, 'logisticregression__C': param_range}]
+    gslr = GridSearchCV(estimator= pipe_lr,\
+        param_grid=param_grid,\
+        scoring='accuracy',\
+        cv=10)
+
+    gslr = gslr.fit(X_train, y_train)
+
+    print('For Logistic Regression')
+    print('The best regulation parameter choice is: ',gslr.best_params_)
+    print('The best score is: %.3f' % (gslr.best_score_))
+    lreg_best = gslr.best_estimator_ #uses the best parameter values found via grid search
+    return lreg_best
+
+print('When not using one hot encoding')
+lrbest = lrpca(X_train2, y_train2)
+
+scores_lreg = cross_val_score(estimator=lrbest, X=X2_std, y=Y_out, cv=10, n_jobs=1)
+print('CV accuracy: %.3f +/- %.3f' % (np.mean(scores_lreg), np.std(scores_lreg)))
+lrbest.fit(X_train2, y_train2)
+print('Test accuracy: %.3f' % lrbest.score(X_test2, y_test2))
+
+
+
+
