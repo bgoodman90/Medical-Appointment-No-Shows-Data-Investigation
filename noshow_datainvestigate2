@@ -1,0 +1,281 @@
+#This file uses machine learning models to analyze the Medical Appointment No Shows dataset
+#this dataset can be found on Kaggle: https://www.kaggle.com/joniarroba/noshowappointments/data
+#the dataset is to be used to determine whether a patient will show up or not to a medical appointment
+#It is coded in Python 3.6.2
+
+import pandas as pd
+import numpy as np
+import math
+from pandas import DataFrame
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.decomposition import PCA
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import cross_val_score
+from sklearn.metrics import accuracy_score
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import VotingClassifier
+from sklearn.ensemble import BaggingClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.naive_bayes import BernoulliNB
+import xgboost
+
+df = pd.read_csv('No-show-Issue-300k.csv',sep=';')
+print('there are ',df.shape[0],' people in the data set')
+
+#fix typos
+df.rename(columns = {'HiperTension':'Hypertension', 'Handcap': 'Handicap', 'ApointmentData': 'AppointmentData',\
+                     'Alcoolism': 'Alcoholism'}, inplace = True)
+#print(df.columns)
+print(df.head())
+
+#make Awaiting time positive
+df.AwaitingTime = df.AwaitingTime.apply(abs)
+
+
+df.AppointmentRegistration = df.AppointmentRegistration.apply(np.datetime64)
+df.AppointmentData = df.AppointmentData.apply(np.datetime64)
+
+#if one wants to check that Awaiting time is the rounded number of days between registration and appointment
+#then you can uncomment the following code
+'''#add days to appointment attribute
+daysToAppointment = df.AppointmentData - df.AppointmentRegistration
+daysToAppointment = daysToAppointment.apply(lambda x: x.total_seconds() / (3600 * 24))
+daysToAppointment = round(daysToAppointment+.5)
+daysToAppointment = daysToAppointment.astype(np.float)
+df = df.assign(DaysToAppointment=daysToAppointment)
+df['DaysToAppointment'] = df['DaysToAppointment'].astype(int)'''
+
+#add in hour appointment was booked during the day, sadly looking at the data we don't know the time the appointment
+#was booked for
+def calculateHour(timestamp):
+    timestamp = str(timestamp)
+    hour = int(timestamp[11:13])
+    minute = int(timestamp[14:16])
+    second = int(timestamp[17:])
+    return round(hour + minute/60 + second/3600)
+
+df['HourOfTheDay'] = df.AppointmentRegistration.apply(calculateHour)
+
+#add in month of appointment (possible weather affects)
+def calculateMonth(timestamp):
+    timestamp = str(timestamp)
+    month = int(timestamp[5:7])
+    return round(month)
+
+df['MonthofAppointment'] = df.AppointmentData.apply(calculateMonth)
+print(df.head())
+
+
+print('Age:', sorted(df.Age.unique()))
+print('Gender:', df.Gender.unique())
+print('DayOfTheWeek:', df.DayOfTheWeek.unique())
+print('MonthofAppointment:', sorted(df.MonthofAppointment.unique()))
+print('Status:', df.Status.unique())
+print('Diabetes:', df.Diabetes.unique())
+print('Alchoholism:', df.Alcoholism.unique())
+print('Hypertension:', df.Hypertension.unique())
+print('Handicap:', df.Handicap.unique())
+print('Smokes:', df.Smokes.unique())
+print('Scholarship:', df.Scholarship.unique())
+print('Tuberculosis:', df.Tuberculosis.unique())
+print('Sms_Reminder:', df.Sms_Reminder.unique())
+print('AwaitingTime:', sorted(df.AwaitingTime.unique()))
+print('HourOfTheDay:', sorted(df.HourOfTheDay.unique()))
+
+
+#Ages -1 and above 100 are going to be considered outliers
+#it is significant to note that this data set (unlike the first one) has an appointment in every month
+#I believe the month could be significant because of weather, but maybe not, we will see
+df = df[(df.Age >= 0) & (df.Age <= 100)]
+
+print('there are ',df.shape[0],' people in the data set after removing outliers')
+
+df_out = df['Status']
+df_in = df.drop(['Status'], axis=1)
+
+#We will remove the features with dates and times
+df_in = df_in.drop(['AppointmentRegistration','AppointmentData'], axis=1)
+print(df_in.head())
+
+def dayToNumber(day):
+    if day == 'Monday':
+        return 0
+    if day == 'Tuesday':
+        return 1
+    if day == 'Wednesday':
+        return 2
+    if day == 'Thursday':
+        return 3
+    if day == 'Friday':
+        return 4
+    if day == 'Saturday':
+        return 5
+    if day == 'Sunday':
+        return 6
+
+df_in.DayOfTheWeek = df_in.DayOfTheWeek.apply(dayToNumber)
+
+
+from sklearn.preprocessing import LabelEncoder#this is used for encoding categorical values to 0,1,2... (in order)
+gender_le = LabelEncoder()#encoding M and F into numbers in Gender
+#day_le = LabelEncoder()#encoding day of the week into a number
+noshow_le = LabelEncoder()#encoding Yes or No: noshow values into numbers
+
+X = df_in.values
+Y_out = df_out.values
+
+
+X[:, 1] = gender_le.fit_transform(X[:, 1])#encoding gender feature so male->1, female->0
+#X[:, 2] = day_le.fit_transform(X[:, 2])#encoding the days of the week
+
+print('The first 5 rows of our input dataset without one hot encoding are:')
+print(X[0:5, :])
+
+Y_out = noshow_le.fit_transform(Y_out)#encoding status feature so no-show=0 and show-up=1
+
+#Scaling
+stdsc = StandardScaler()
+X_std = stdsc.fit_transform(X)#standardize the values of our input set
+
+#now we are going to split our training data into training and testing data, the reason for this is so that we can
+#test for overfitting and such
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X_std, Y_out, test_size = 0.8, random_state = 1,\
+    stratify = Y_out)#this makes sure the training and test datasets have same class proportions
+X_train2, X_test2, y_train2, y_test2 = train_test_split(X_std, Y_out, test_size = 0.2, random_state = 1,\
+    stratify = Y_out)#this makes sure the training and test datasets have same class proportions
+
+print(X_train.shape)
+
+#######################################################################################################
+#######################################################################################################
+#######################################################################################################
+#define function which prints scores of model given train/test split
+def modelscores(model, X_train, X_test, y_train, y_test, X_std, Y_out):
+    scores = cross_val_score(estimator=model, X=X_std, y=Y_out, cv=10, n_jobs=1)
+    print('CV accuracy: %.3f +/- %.3f' % (np.mean(scores), np.std(scores)))
+    model.fit(X_train, y_train)
+    print('Test accuracy: %.3f' % model.score(X_test, y_test))
+
+#######################################################################################################
+#######################################################################################################
+#######################################################################################################
+
+'''#Logistic Regression Estimator
+
+pipe_lr = make_pipeline(PCA(), LogisticRegression(random_state=0))
+print(pipe_lr.get_params().keys())
+param_range = [.1, .5, 1, 10]#regularization parameter for logistic regression
+
+def lrpca(X_train, y_train):
+    n_components=np.arange(7,X_train.shape[1]+1,1)#the number of components PCA reduces the data to
+    param_grid = [{'pca__n_components': n_components, 'logisticregression__C': param_range}]
+    gslr = GridSearchCV(estimator= pipe_lr,\
+        param_grid=param_grid,\
+        scoring='accuracy',\
+        cv=10)
+
+    gslr = gslr.fit(X_train, y_train)
+
+    print('For Logistic Regression')
+    print('The best regulation parameter choice is: ',gslr.best_params_)
+    print('The best score is: %.3f' % (gslr.best_score_))
+    lreg_best = gslr.best_estimator_ #uses the best parameter values found via grid search
+    return lreg_best
+
+print('When not using one hot encoding')
+lrbest = lrpca(X_train, y_train)
+modelscores(lrbest, X_train, X_test, y_train, y_test, X_std, Y_out)'''
+
+
+#######################################################################################################
+#######################################################################################################
+#######################################################################################################
+
+#Random Forest Estimator
+forest = RandomForestClassifier(random_state=1)
+
+#n_estlist = [10, 25, 50, 100]
+param_grid_rf = { \
+    'n_estimators': [5, 25, 50 ],\
+    'max_features': ['auto', 'sqrt', 'log2'],\
+    'max_depth' : np.arange(1, 9, 1),\
+    'criterion' :['gini', 'entropy']}
+
+gsrf = GridSearchCV(estimator=forest,param_grid=param_grid_rf,scoring='accuracy',cv=10,n_jobs=2)
+
+gsrf = gsrf.fit(X_train, y_train)
+print('For Random Forest')
+print('The best parameter choice is: ',gsrf.best_params_)
+print('The best score is: %.3f' % (gsrf.best_score_))
+
+rforest_best = gsrf.best_estimator_ #uses the best parameter values found via grid search
+modelscores(rforest_best, X_train2, X_test2, y_train2, y_test2, X_std, Y_out)
+
+#######################################################################################################
+#######################################################################################################
+#######################################################################################################
+
+'''#AdaBoost using Tree Stumps (also just tree stump)
+
+tree_stump = DecisionTreeClassifier(criterion='entropy', random_state=1, max_depth=1)
+ada = AdaBoostClassifier(base_estimator=tree_stump, n_estimators = 500, random_state=1)
+
+tree_stump = tree_stump.fit(X_train, y_train)
+y_train_pred = tree_stump.predict(X_train)
+y_test_pred = tree_stump.predict(X_test)
+tree_train = accuracy_score(y_train, y_train_pred)
+tree_test = accuracy_score(y_test, y_test_pred)
+print('For tree stump:')
+print('Decision tree train/test accuracies %.3f/%.3f' % (tree_train, tree_test))
+
+
+def adamodel(X_train, y_train):
+    param_grid_ada = { 'learning_rate' : [0.05, 0.1, 0.2]}
+    gsada = GridSearchCV(estimator = ada, param_grid = param_grid_ada, scoring='accuracy', cv=10)
+    gsada = gsada.fit(X_train, y_train)
+    print('For AdaBoost using Tree Stumps')
+    print('The best parameter choice is: ',gsada.best_params_)
+    print('The best score is: %.3f' % (gsada.best_score_))
+    ada_best = gsada.best_estimator_  # uses the best parameter values found via grid search
+    return ada_best
+
+ada_best = adamodel(X_train, y_train)
+modelscores(ada_best, X_train, X_test, y_train, y_test, X_std, Y_out)'''
+
+
+#######################################################################################################
+#######################################################################################################
+#######################################################################################################
+
+'''#K-Nearest Neighbours
+#remember we have already used standard scaling on the data, but we will want to implement PCA
+
+pipe_knn = make_pipeline(PCA(), KNeighborsClassifier(p=2, metric='minkowski'))
+print(pipe_knn.get_params().keys())
+
+def knnmodel(X_train, y_train):
+    n_neighbors=np.arange(1, 11, 1)#the number of nearest neighbours considered
+    n_components=np.arange(1, X_train.shape[1]+1, 1)#the number of components PCA reduces the data to
+    param_grid4 = [{'pca__n_components': n_components, 'kneighborsclassifier__n_neighbors': n_neighbors}]
+    gsknnpca = GridSearchCV(estimator=pipe_knn, param_grid=param_grid4, scoring='accuracy', cv=10, n_jobs=1)
+
+    gsknnpca = gsknnpca.fit(X_train, y_train)
+    print('For K-Nearest Neighbours with PCA')
+    print('The best parameter choice is: ',gsknnpca.best_params_)
+    print('The best score is: %.3f' % (gsknnpca.best_score_))
+
+    knnpca_best = gsknnpca.best_estimator_ #uses the best parameter values found via grid search
+    return knnpca_best
+
+knnpca_best = knnmodel(X_train, y_train)
+modelscores(knnpca_best, X_train2, X_test2, y_train2, y_test2, X_std, Y_out)'''
+
