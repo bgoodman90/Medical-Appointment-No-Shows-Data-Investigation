@@ -29,3 +29,7 @@ CV accuracy: 0.665 +/- 0.002
 Test accuracy: 0.667
 
 It is interesting how despite there being more data that there is such a difference in a result from the last data set.  I am unsure why this might be, but regardless I am going to treat this as the actual data set from now on.  More to come soon.
+
+Feature importance based on random forest voting can be seen in the figure below.
+
+![alt text](https://github.com/bgoodman90/Medical-Appointment-No-Shows-Data-Investigation/blob/master/NoShowFeatureImportance.png)
