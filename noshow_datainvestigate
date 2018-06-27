@@ -1,3 +1,7 @@
+#This is not the main file.  I initially investigated an earlier edition of the dataset which was done using this file.
+#There are a couple things I did with the data here that I don't do with the newer edition of the data so I am keeping this
+#code on file for my own sake.
+
 #This file uses machine learning models to analyze the Medical Appointment No Shows dataset
 #this dataset can be found on Kaggle: https://www.kaggle.com/joniarroba/noshowappointments/data
 #the dataset is to be used to determine whether a patient will show up or not to a medical appointment
