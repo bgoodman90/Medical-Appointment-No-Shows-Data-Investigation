@@ -25,6 +25,7 @@ from sklearn.ensemble import BaggingClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.naive_bayes import BernoulliNB
+from sklearn.ensemble import BaggingClassifier
 import xgboost
 
 df = pd.read_csv('No-show-Issue-300k.csv',sep=';')
@@ -200,7 +201,7 @@ modelscores(lrbest, X_train, X_test, y_train, y_test, X_std, Y_out)'''
 #######################################################################################################
 #######################################################################################################
 
-#Random Forest Estimator
+'''#Random Forest Estimator
 forest = RandomForestClassifier(random_state=1)
 
 #n_estlist = [10, 25, 50, 100]
@@ -218,7 +219,7 @@ print('The best parameter choice is: ',gsrf.best_params_)
 print('The best score is: %.3f' % (gsrf.best_score_))
 
 rforest_best = gsrf.best_estimator_ #uses the best parameter values found via grid search
-modelscores(rforest_best, X_train2, X_test2, y_train2, y_test2, X_std, Y_out)
+modelscores(rforest_best, X_train2, X_test2, y_train2, y_test2, X_std, Y_out)'''
 
 #######################################################################################################
 #######################################################################################################
@@ -279,3 +280,60 @@ def knnmodel(X_train, y_train):
 knnpca_best = knnmodel(X_train, y_train)
 modelscores(knnpca_best, X_train2, X_test2, y_train2, y_test2, X_std, Y_out)'''
 
+#######################################################################################################
+#######################################################################################################
+#######################################################################################################
+
+#Bagging Classifier
+tree = DecisionTreeClassifier(criterion='entropy', random_state=1, max_depth=None)
+bag = BaggingClassifier(base_estimator=tree, n_estimators=500, max_samples=1.0, max_features=1.0, \
+                        bootstrap=True, bootstrap_features=False, n_jobs=1, random_state=1)
+
+#bag_best = bagpca(X_train, y_train)
+modelscores(bag, X_train2, X_test2, y_train2, y_test2, X_std, Y_out)
+
+
+#######################################################################################################
+#######################################################################################################
+#######################################################################################################
+
+'''correlation = np.corrcoef(X_std, X_std,rowvar=False)#variables are marked by columns not rows
+print('The normalized covariance matrix is')
+print(correlation)
+#Evaluating feature importance using Random Forest
+
+import matplotlib.pyplot as plt
+
+feat_labels = df_in.columns #a list of the feature names in the data set
+
+forest = RandomForestClassifier(n_estimators=500, random_state=1)
+
+forest.fit(X_train, y_train)
+importances = forest.feature_importances_
+
+indices = np.argsort(importances)[::-1]
+
+for f in range(X_train.shape[1]):
+     print("%2d) %-*s %f" % (f + 1, 30, feat_labels[indices[f]], importances[indices[f]]))
+
+plt.title('Feature Importance')
+plt.xlabel('Features')
+plt.ylabel('Feature Importance (Normalized)')
+plt.bar(range(X_train.shape[1]), importances[indices], align='center')
+
+plt.xticks(range(X_train.shape[1]), feat_labels, rotation=90)
+plt.xlim([-1, X_train.shape[1]])
+plt.tight_layout()
+plt.show()'''
+
+#If one wants to get rid of all features with importance below a certain threshold one can implement the
+#following code
+
+'''from sklearn.feature_selection import SelectFromModel
+
+sfm = SelectFromModel(forest, threshold=0.1, prefit=True)
+X_selected = sfm.transform(X_train)
+print('Number of samples that meet this criterion:', X_selected.shape[0])
+feat_labels = df_in.columns[0:]
+for f in range(X_selected.shape[1]): print("%2d) %-*s %f" % (f + 1, 30, feat_labels[indices[f]],\
+                                                             importances[indices[f]]))'''
